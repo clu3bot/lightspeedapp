@@ -48,3 +48,5 @@ def menu():
     clear()
     print("[1] Get Giftcard info")
     print("[2] Update a Product")
+
+menu()
