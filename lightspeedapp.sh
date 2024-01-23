@@ -274,6 +274,206 @@ add_or_subtract_inventory_quantity(){
     true
 }
 
+product_check_gategory_exists(){
+    if [ -e "$file_2" ]; then
+        rm -irf "$file_2"
+    else
+        true
+    fi
+    clear
+    read -p "Category: " return_product_category
+    curl --request GET --url 'https://'$domain_prefix'.vendhq.com/api/2.0/product_categories' --header 'accept: application/json' --header 'authorization: Bearer '$token'' > output.config
+    if grep -q "$return_product_category" "$file_2"; then
+        true
+    else
+        clear
+        echo "Category Doesn't Exist"
+        sleep 2
+        product_check_gategory_exists
+    fi
+}
+
+product_ask_for_name(){
+    clear
+    read -p "Name: " return_product_name
+    if [ -n "$return_product_name" ]; then
+        true
+    else
+        product_ask_for_name
+    fi
+}
+
+product_check_sku_exists(){
+    if [ -e "$file_2" ]; then
+        rm -irf "$file_2"
+    else
+        true
+    fi
+    clear
+    read -p "Enter Product SKU: " quick_add_sku
+    if [ -n "$quick_add_sku" ]; then
+        curl --request GET --url 'https://'$domain_prefix'.vendhq.com/api/2.0/search?type=products&sku='$quick_add_sku'' --header 'accept: application/json' --header 'authorization: Bearer '$token'' > output.config
+        sku_product_id=$(cat output.config | awk -F'[:,]' '{for(i=1;i<=NF;i++){if($i~/"product_id"/){print $(i+1)}}}' | sed 's/"//g' | sed 's/}//g')
+        if [ -n "$sku_product_id" ]; then
+            clear
+            echo "A Product with the Sku: "$quick_add_sku" Already Exists"
+            read -p "Press Enter.."
+            product_check_sku_exists
+        else
+            true
+        fi
+    else
+        clear
+        echo "An error has occured.. Returning to main menu"
+        sleep 2
+        menu
+    fi
+
+}
+
+product_supply_price(){
+    clear
+    read -p "Supply Price: " product_supplier_price
+    if [ -n "$product_supplier_price" ]; then
+        if [[ $product_supplier_price =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            product_cost=$product_supplier_price
+        else
+            clear
+            echo "Enter a number.."
+            sleep 2
+            product_supply_price
+        fi
+    else
+        clear
+        echo "No Supply Price Added.."
+        product_supply_price
+    fi
+}
+
+product_retailing_price(){
+    clear
+    read -p "Retail Price: " product_retail_price
+    if [ -n "$product_retail_price" ]; then
+        if [[ $product_retail_price =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            product_retail=$product_retail_price
+        else
+            clear
+            echo "Enter a number.."
+            sleep 2
+            product_retailing_price
+        fi
+    else
+        clear
+        echo "No Retail Price Added.."
+        product_retailing_price
+    fi
+}
+
+product_is_active(){
+    clear
+    read -p "Active? (y/n): " product_is_active
+    if [ "$product_is_active" = "y" ]; then
+        product_active_status=1
+    elif [ "$product_is_active" = "n" ]; then
+        product_active_status=0
+    else
+        clear
+        echo "Invalid Option.."
+        sleep 2
+        product_is_active
+    fi
+    product_online_active_status=0
+}
+
+product_supplier_code(){
+    clear
+    read -p "Supplier Code: " supplier_code
+    if [ -n "$supplier_code" ]; then
+        true
+    else
+        clear
+        echo "No Supplier Code Entered.."
+        sleep 2
+        product_supplier_code
+    fi
+}
+
+product_supplier_name(){
+    
+    clear
+    read -p "Enter a Supplier Name: " product_supply_name
+    if [ -n "$product_supply_name" ]; then
+        curl --request GET --url 'https://'$domain_prefix'.vendhq.com/api/2.0/suppliers' --header 'accept: application/json' --header 'authorization: Bearer '$token'' > output.config
+        if grep -q "$return_supply_name" "$file_2"; then
+            true
+        else
+            clear
+            echo "Supplier Doesn't Exist"
+            sleep 2
+            product_supplier_name
+        fi
+    else
+        clear
+        echo "An error has occured.. Returning to main menu"
+        sleep 2
+        menu
+    fi
+}
+
+get_outlet_id_from_sku(){
+    sleep 0
+    #figure out
+
+}
+
+product_upload_payload(){
+    curl --request POST \
+     --url https://domain_prefix.vendhq.com/api/2.0/products \
+     --header 'accept: application/json' \
+     --header 'authorization: Bearer test' \
+     --header 'content-type: application/json' \
+     --data '
+        {
+            "name": '$return_product_name',
+            "sku": '$sku_product_id',
+            "product_category_id": "3",
+            "supply_price": '$product_cost',
+            "supplier_id": "5",
+            "is_active": true,
+            "inventory": [
+                {
+                    "outlet_id": '$return_outlet_id',
+                    "current_amount": '$current_inventory_quantity'
+                }
+                ],
+        "price_including_tax": '$product_retail'
+        }
+        '
+}
+
+track_inventory_active(){
+    track_inventory=1
+}
+
+inventory_quantity(){
+    current_inventory_quantity=0
+}
+
+#new products only. checks if sku exists or executes
+product_quick_add(){
+    product_check_sku_exists
+    product_ask_for_name
+    product_check_gategory_exists    
+    product_is_active
+    product_supply_price
+    product_retailing_price
+    product_supplier_name
+    product_supplier_code
+    track_inventory_active
+    inventory_quantity
+    product_upload_payload
+}
+
 #trying to figure out loyalty adjustment. possibly need to connect customer code in order to adjust? use customer id to search for customer code then add into post
 
 get_customer_code(){
@@ -470,6 +670,7 @@ menu() {
     echo "[2] Inventory QTY Changes"
     echo "[3] Customer Search by Parameter"
     echo "[4] Alter Customer Loyalty (Beta)"
+    echo "[5] Product Quick Add"
 
     read -p "Select an Option: " choice
     
@@ -481,6 +682,8 @@ menu() {
         customer_search_by_parameter
     elif [ "$choice" = "4" ]; then
         alter_customer_loyalty
+    elif [ "$choice" = "5" ]; then
+        product_quick_add
     else
         echo Invalid Option
         sleep 2
