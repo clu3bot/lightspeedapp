@@ -303,6 +303,8 @@ product_ask_for_name(){
     fi
 }
 
+
+#sed -nE "/\"name\":\"$supplier_name\"/,/\"id\":/s/.*\"id\":\"([^\"]+)\".*/\1/p"
 product_check_sku_exists(){
     if [ -e "$file_2" ]; then
         rm -irf "$file_2"
@@ -397,7 +399,7 @@ product_supplier_code(){
         product_supplier_code
     fi
 }
-
+#sed -nE "/\"name\":\"$supplier_name\"/,/\"id\":/s/.*\"id\":\"([^\"]+)\".*/\1/p"
 product_supplier_name(){
     
     clear
@@ -405,6 +407,7 @@ product_supplier_name(){
     if [ -n "$product_supply_name" ]; then
         curl --request GET --url 'https://'$domain_prefix'.vendhq.com/api/2.0/suppliers' --header 'accept: application/json' --header 'authorization: Bearer '$token'' > output.config
         if grep -q "$return_supply_name" "$file_2"; then
+            supplier_id_for_update=$(cat output.config | awk -F'[:,]' '{for(i=1;i<=NF;i++){if($i~/"product_id"/){print $(i+1)}}}' | sed 's/"//g' | sed 's/}//g')
             true
         else
             clear
@@ -619,11 +622,28 @@ gift_card_sale_info(){
             giftcard_transaction_id=$(cat output.config | awk -F'[:,]' '{for(i=1;i<=NF;i++){if($i~/"transaction_id"/){print $(i+1)}}}' | sed 's/"//g' | sed 's/}//g')    
             #returns transaction type
             giftcard_purchase_transaction_type=$(cat output.config | awk -F'[:,]' '{for(i=1;i<=NF;i++){if($i~/"name"/){print $(i+1)}}}' | sed 's/"//g' | sed 's/}//g')
-            get_details_for_giftcard_sale_info
     else
         echo "An Erorr has Occured.. Returning to Main Menu"
         menu
     fi
+}
+
+print_gift_receipt(){
+    rm -irf giftcard_gift_receipt_output.txt
+    gift_card_sale_info
+    echo -e "
+Card Number: $giftcard_number
+Current Balance: $current_balance
+Original Balance: $original_balance
+Redeemed Since Bought: $since_redeemed
+Creation Date: $creation_date
+Invoice Number: $giftcard_original_sale_invoice_number
+Customer: $return_customer_name_for_giftcard
+Status: $status
+            " > giftcard_gift_receipt_output.txt
+    
+    
+
 }
 
 get_giftcard_info(){
@@ -646,17 +666,66 @@ get_giftcard_info(){
     echo -e "Status: $status\n"
 
     echo "[1] Sale Information"
-    echo -e "[2] Return to Main Menu\n"
+    echo "[2] Print Gift Receipt"
+    echo -e "[3] Return to Main Menu\n"
     read -p "Select an Option: " option
     if [ "$option" = "1" ]; then
         gift_card_sale_info
+        get_details_for_giftcard_sale_info
     elif [ "$option" = "2" ]; then
+        print_gift_receipt
+    elif [ "$option" = "3" ]; then
         menu
     else
         menu
     fi
     rm -irf output.config
     menu
+}
+
+product_check_sku_exists_for_update(){
+    if [ -e "$file_2" ]; then
+        rm -irf "$file_2"
+    else
+        true
+    fi
+    clear
+    read -p "Enter Product SKU: " quick_add_sku
+    if [ -n "$quick_add_sku" ]; then
+        curl --request GET --url 'https://'$domain_prefix'.vendhq.com/api/2.0/search?type=products&sku='$quick_add_sku'' --header 'accept: application/json' --header 'authorization: Bearer '$token'' > output.config
+        sku_product_id=$(cat output.config | awk -F'[:,]' '{for(i=1;i<=NF;i++){if($i~/"product_id"/){print $(i+1)}}}' | sed 's/"//g' | sed 's/}//g')
+        product_supplier_id=$(cat output.config | awk -F'[:,]' '{for(i=1;i<=NF;i++){if($i~/"supplier_id"/){print $(i+1)}}}' | sed 's/"//g' | sed 's/}//g' | sed 's/{//g')
+        if [ -n "$sku_product_id" ]; then
+            true
+        else
+            echo "Product Does Not Exist"
+            read -p "Try again.." 
+            product_check_sku_exists_for_update
+        fi
+    else
+        clear
+        echo "An error has occured.. Returning to main menu"
+        sleep 2
+        menu
+    fi
+
+}
+
+product_price_update() {
+product_check_sku_exists_for_update
+#product_supplier_name_for_update
+clear
+if [ -n "$sku_product_id" ]; then
+    read -p "Supply price: " supply_price_for_update
+    clear
+    read -p "Retail price: " retail_price_for_update
+    clear
+    curl --request PUT --url 'https://'$domain_prefix'.vendhq.com/api/2.1/products/'$sku_product_id'' --header 'accept: application/json' --header 'authorization: Bearer '$token'' --header 'content-type: application/json' --data ' { "details": { "product_suppliers": [ { "supplier_id": "'$product_supplier_id'", "price": '$supply_price_for_update' } ] } }'
+else
+    echo "Something Went Wrong"
+    sleep 2
+    product_price_update
+fi
 }
 
 menu() {
@@ -671,6 +740,7 @@ menu() {
     echo "[3] Customer Search by Parameter"
     echo "[4] Alter Customer Loyalty (Beta)"
     echo "[5] Product Quick Add"
+    echo "[6] Product Quick Updater (Beta, price only)"
 
     read -p "Select an Option: " choice
     
@@ -684,6 +754,8 @@ menu() {
         alter_customer_loyalty
     elif [ "$choice" = "5" ]; then
         product_quick_add
+    elif [ "$choice" = "6" ]; then
+        product_price_update
     else
         echo Invalid Option
         sleep 2
